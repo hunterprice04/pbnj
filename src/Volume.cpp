@@ -58,7 +58,7 @@ void Volume::init()
     ospSet3iv(this->oVolume, "dimensions", dimensions);
     ospSetString(this->oVolume, "voxelType", "float");
     ospSet2fv(this->oVolume, "voxelRange", voxelRange);
-    ospSet3fv(this->oVolume, "gridOrigin", center);
+    ospSetVec3f(this->oVolume, "gridOrigin", center);
     ospSetObject(this->oVolume, "transferFunction",
             this->transferFunction->asOSPObject());
     ospCommit(this->oVolume);

@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include <ospray/ospray.h>
+#include <ospray/ospray_util.h>
 
 namespace pbnj {
 
@@ -15,7 +16,7 @@ Camera::Camera(int width, int height) :
     //setup OSPRay camera with basic parameters
     this->oCamera = ospNewCamera("perspective");
     this->updateOSPRayPosition();
-    ospSetf(this->oCamera, "aspect", (float)this->imageWidth/imageHeight);
+    ospSetFloat(this->oCamera, "aspect", (float)this->imageWidth/imageHeight);
     ospCommit(this->oCamera);
 }
 
@@ -85,14 +86,14 @@ int Camera::getImageHeight()
 void Camera::updateOSPRayPosition()
 {
     //update OSPRay camera
-    float position[] = {this->xPos, this->yPos, this->zPos};
-    ospSet3fv(this->oCamera, "pos", position);
+    // float position[] = {this->xPos, this->yPos, this->zPos};
+    ospSetVec3f(this->oCamera, "pos", this->xPos, this->yPos, this->zPos);
 
-    float direction[] = {this->viewX, this->viewY, this->viewZ};
-    ospSet3fv(this->oCamera, "dir", direction);
+    // float direction[] = {this->viewX, this->viewY, this->viewZ};
+    ospSetVec3f(this->oCamera, "dir", this->viewX, this->viewY, this->viewZ);
 
-    float up[] = {this->upX, this->upY, this->upZ};
-    ospSet3fv(this->oCamera, "up",  up);
+    // float up[] = {this->upX, this->upY, this->upZ};
+    ospSetVec3f(this->oCamera, "up",  this->upX, this->upY, this->upZ);
     ospCommit(this->oCamera);
 }
 
@@ -104,10 +105,10 @@ void Camera::setRegion(float top, float right, float bottom, float left)
     // top right of the full image is [1, 1]
     // e.g. the upper left quadrant of the image would be defined with
     // setRegion(1, 0.5, 0.5, 0)
-    float upperRight[] = {right, top};
-    float lowerLeft[] = {left, bottom};
-    ospSet2fv(this->oCamera, "imageStart", lowerLeft);
-    ospSet2fv(this->oCamera, "imageEnd", upperRight);
+    // float upperRight[] = {right, top};
+    // float lowerLeft[] = {left, bottom};
+    ospSetVec2f(this->oCamera, "imageStart", right, top);
+    ospSetVec2f(this->oCamera, "imageEnd", left, bottom);
 }
 
 OSPCamera Camera::asOSPRayObject()

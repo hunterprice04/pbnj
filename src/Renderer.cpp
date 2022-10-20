@@ -13,6 +13,9 @@
 #include <stdio.h>
 
 #include <ospray/ospray.h>
+#include "ospray/ospray_cpp.h"
+#include <ospray/ospray_util.h>
+// #include "ospray/ospray_cpp/ext/rkcommon.h"
 
 #include "lodepng/lodepng.h"
 #include "CImg.h"
@@ -27,8 +30,11 @@ Renderer::Renderer() :
     this->setBackgroundColor(0, 0, 0, 0);
     this->oCamera = NULL;
     this->oModel = NULL;
+    this->oWorld = NULL;
     this->oSurface = NULL;
     this->oMaterial = NULL;
+    this->oInstance = NULL;
+    // this->oWorld = NULL;
     this->lastVolumeID = "unset";
     this->lastCameraID = "unset";
 }
@@ -43,12 +49,13 @@ Renderer::~Renderer()
     ospRemoveParam(this->oRenderer, "oneSidedLighting");
     ospRemoveParam(this->oRenderer, "model");
     ospRemoveParam(this->oRenderer, "camera");
+    ospRemoveParam(this->oRenderer, "world");
     ospRelease(this->oRenderer);
 
     ospRelease(this->oCamera);
 
     ospRelease(this->oModel);
-
+    
     ospRemoveParam(this->oMaterial, "Kd");
     ospRemoveParam(this->oMaterial, "Ks");
     ospRemoveParam(this->oMaterial, "Ns");
@@ -63,6 +70,18 @@ Renderer::~Renderer()
         ospRemoveParam(this->lights[light], "direction");
         ospRelease(this->lights[light]);
     }
+
+    ospRelease(this->oGroup);
+
+
+    ospRemoveParam(this->oInstance, "group");
+    ospRelease(this->oInstance);
+
+
+    ospRemoveParam(this->oWorld, "instance");
+    ospRemoveParam(this->oWorld, "light");
+    ospRelease(this->oWorld);
+
 }
 
 void Renderer::setBackgroundColor(unsigned char r, unsigned char g, unsigned char b, unsigned char a)
@@ -72,7 +91,7 @@ void Renderer::setBackgroundColor(unsigned char r, unsigned char g, unsigned cha
     this->backgroundColor[2] = b;
     this->backgroundColor[3] = a;
     float asVec[] = {r/(float)255.0, g/(float)255.0, b/(float)255.0, a/(float)255.0};
-    ospSet3fv(this->oRenderer, "bgColor", asVec);
+    ospSetVec4f(this->oRenderer, "bgColor", r/(float)255.0, g/(float)255.0, b/(float)255.0, a/(float)255.0);
     ospCommit(this->oRenderer);
 }
 
@@ -95,16 +114,40 @@ void Renderer::setVolume(Volume *v)
         // did a volume render
         return;
     }
-    if(this->oModel != NULL) {
+    if(this->oWorld != NULL) {
         ospRelease(this->oModel);
+        ospRelease(this->oGroup);
+        ospRelease(this->oInstance);
+        ospRelease(this->oWorld);
+
         this->oModel = NULL;
+        this->oGroup = NULL;
+        this->oInstance = NULL;
+        this->oWorld = NULL;
     }
 
     this->lastVolumeID = v->ID;
     this->lastRenderType = "volume";
-    this->oModel = ospNewModel();
-    ospAddVolume(this->oModel, v->asOSPRayObject());
+
+    // put the volume in a model and commit it
+    this->oModel = ospNewVolumetricModel(v->asOSPRayObject());
     ospCommit(this->oModel);
+
+    // put the volume model in a group and commit it
+    this->oGroup = ospNewGroup();
+    OSPData oModelData = ospNewSharedData1D(&this->oModel, OSP_VOLUMETRIC_MODEL, 1);
+    ospSetObject(this->oGroup, "volume", oModelData);
+    ospCommit(this->oGroup);
+
+    // put the group in an instance and commit it
+    this->oInstance = ospNewInstance(this->oGroup);
+    ospCommit(this->oInstance);
+
+    // put the instance in the world
+    this->oWorld = ospNewWorld();
+    OSPData oInstanceData = ospNewSharedData1D(&this->oInstance, OSP_INSTANCE, 1);
+    ospSetObject(this->oWorld, "instance", oInstanceData);
+    ospCommit(this->oWorld);
 }
 
 void Renderer::addLight()
@@ -112,12 +155,13 @@ void Renderer::addLight()
     // currently the renderer will hold only one light
     if(this->lights.size() == 0) {
         // create a new directional light
-        OSPLight light = ospNewLight(this->oRenderer, "distant");
+        OSPLight light = ospNewLight("distant");
+        // OSPLight light = ospNewLight(this->oRenderer, "distant");
         //float direction[] = {0, -1, 1};
-        //ospSet3fv(light, "direction", direction);
+        //ospSetVec3f(light, "direction", direction);
         // set the apparent size of the light in degrees
         // 0.53 approximates the Sun
-        ospSet1f(light, "angularDiameter", 0.53);
+        ospSetFloat(light, "angularDiameter", 0.53);
         ospCommit(light);
         this->lights.push_back(light);
     }
@@ -140,21 +184,29 @@ void Renderer::setIsosurface(Volume *v, std::vector<float> &isoValues,
             return;
         }
     }
-    if(this->oModel != NULL) {
+    if(this->oWorld != NULL) {
         ospRelease(this->oModel);
+        ospRelease(this->oGroup);
+        ospRelease(this->oInstance);
+        ospRelease(this->oWorld);
+
         this->oModel = NULL;
+        this->oGroup = NULL;
+        this->oInstance = NULL;
+        this->oWorld = NULL;
     }
 
     // set up light and material if necessary
     this->addLight();
     if(this->oMaterial == NULL) {
         // create a new surface material with some specular highlighting
-        this->oMaterial = ospNewMaterial(this->oRenderer, "OBJMaterial");
-        float Ks[] = {specular, specular, specular};
-        float Kd[] = {1.f-specular, 1.f-specular, 1.f-specular};
-        ospSet3fv(this->oMaterial, "Kd", Kd);
-        ospSet3fv(this->oMaterial, "Ks", Ks);
-        ospSet1f(this->oMaterial, "Ns", 10);
+        // this->oMaterial = ospNewMaterial(this->oRenderer, "OBJMaterial");
+        this->oMaterial = ospNewMaterial(nullptr, "OBJMaterial");
+        // float Ks[] = {specular, specular, specular};
+        // float Kd[] = {1.f-specular, 1.f-specular, 1.f-specular};
+        ospSetVec3f(this->oMaterial, "Kd", 1.f-specular, 1.f-specular, 1.f-specular);
+        ospSetVec3f(this->oMaterial, "Ks", specular, specular, specular);
+        ospSetFloat(this->oMaterial, "Ns", 10);
         ospCommit(this->oMaterial);
     }
 
@@ -164,19 +216,44 @@ void Renderer::setIsosurface(Volume *v, std::vector<float> &isoValues,
         this->oSurface = NULL;
     }
     this->oSurface = ospNewGeometry("isosurfaces");
-    OSPData isoValuesDataArray = ospNewData(isoValues.size(), OSP_FLOAT,
-            isoValues.data());
-    ospSetData(this->oSurface, "isovalues", isoValuesDataArray);
+    // OSPData isoValuesDataArray = ospNewData(isoValues.size(), OSP_FLOAT,
+    //         isoValues.data());
+    OSPData isoValuesDataArray = ospNewSharedData(isoValues.data(),  OSP_FLOAT,
+            isoValues.size());
+    ospSetObject(this->oSurface, "isovalues", isoValuesDataArray);
     ospSetObject(this->oSurface, "volume", v->asOSPRayObject());
-    ospSetMaterial(this->oSurface, this->oMaterial);
+    ospSetObject(this->oSurface, "material", this->oMaterial);
+    // ospSetMaterial(this->oSurface, this->oMaterial);
     ospCommit(this->oSurface);
 
     this->lastVolumeID = v->ID;
     this->lastRenderType = "isosurface";
     this->lastIsoValues = isoValues;
-    this->oModel = ospNewModel();
-    ospAddGeometry(this->oModel, this->oSurface);
+    // this->oModel = 
+    // this->oModel = ospNewModel();
+    // ospAddGeometry(this->oModel, this->oSurface);
+    // ospCommit(this->oModel);
+
+
+    // put the geometry in a model and commit it
+    this->oModel = ospNewGeometricModel(this->oSurface);
     ospCommit(this->oModel);
+
+    // put the volume model in a group and commit it
+    this->oGroup = ospNewGroup();
+    OSPData oModelData = ospNewSharedData1D(&this->oModel, OSP_GEOMETRIC_MODEL, 1);
+    ospSetObject(this->oGroup, "geometry", oModelData);
+    ospCommit(this->oGroup);
+
+    // put the group in an instance and commit it
+    this->oInstance = ospNewInstance(this->oGroup);
+    ospCommit(this->oInstance);
+
+    // put the instance in the world
+    this->oWorld = ospNewWorld();
+    OSPData oInstanceData = ospNewSharedData1D(&this->oInstance, OSP_INSTANCE, 1);
+    ospSetObject(this->oWorld, "instance", oInstanceData);
+    ospCommit(this->oWorld);
 }
 
 void Renderer::setCamera(Camera *c)
@@ -206,7 +283,7 @@ void Renderer::setCamera(Camera *c)
 void Renderer::setSamples(unsigned int spp)
 {
     this->samples = spp;
-    ospSet1i(this->oRenderer, "spp", spp);
+    ospSetInt(this->oRenderer, "spp", spp);
     ospCommit(this->oRenderer);
 }
 
@@ -306,32 +383,42 @@ void Renderer::render()
     if(this->lights.size() == 1) {
         //if there was a light, set its direction based on the camera
         //and add it to the renderer
-        ospSet3fv(this->lights[0], "direction", this->lightDirection);
+        ospSetVec3f(this->lights[0], "direction", 
+            this->lightDirection[0],this->lightDirection[1],this->lightDirection[2]);
         ospCommit(this->lights[0]);
-        OSPData lightDataArray = ospNewData(this->lights.size(), OSP_LIGHT, this->lights.data());
+
+         OSPData lightDataArray = ospNewSharedData(this->lights.data(),  OSP_LIGHT, this->lights.size());
+        // OSPData lightDataArray = ospNewData(this->lights.size(), OSP_LIGHT, this->lights.data());
         ospCommit(lightDataArray);
         ospSetObject(this->oRenderer, "lights", lightDataArray);
         unsigned int aoSamples = std::max(this->samples/8, (unsigned int) 1);
-        ospSet1i(this->oRenderer, "aoSamples", aoSamples);
-        ospSet1i(this->oRenderer, "shadowsEnabled", 0);
-        ospSet1i(this->oRenderer, "oneSidedLighting", 0);
+        ospSetInt(this->oRenderer, "aoSamples", aoSamples);
+        ospSetInt(this->oRenderer, "shadowsEnabled", 0);
+        ospSetInt(this->oRenderer, "oneSidedLighting", 0);
     }
     ospSetObject(this->oRenderer, "model", this->oModel);
     ospSetObject(this->oRenderer, "camera", this->oCamera);
     ospCommit(this->oRenderer);
 
     //set up framebuffer
-    osp::vec2i imageSize;
+    // osp::vec2i imageSize;
     this->cameraWidth = this->pbnjCamera->getImageWidth();
     this->cameraHeight = this->pbnjCamera->getImageHeight();
-    imageSize.x = this->cameraWidth;
-    imageSize.y = this->cameraHeight;
+    // imageSize.x = this->cameraWidth;
+    // imageSize.y = this->cameraHeight;
     //this framebuffer will be released after a single frame
-    this->oFrameBuffer = ospNewFrameBuffer(imageSize, OSP_FB_SRGBA,
+    this->oFrameBuffer = ospNewFrameBuffer(this->cameraWidth, this->cameraHeight, OSP_FB_SRGBA,
                                            OSP_FB_COLOR | OSP_FB_ACCUM);
-    ospRenderFrame(this->oFrameBuffer, this->oRenderer,
-            OSP_FB_COLOR | OSP_FB_ACCUM);
+    // this->oFrameBuffer = ospNewFrameBuffer(imageSize, OSP_FB_SRGBA,
+    //                                        OSP_FB_COLOR | OSP_FB_ACCUM);
 
+    // OSPWorld world = ospNewWorld();
+    // OSPData instances = ospNewSharedData1D(&instance, OSP_INSTANCE, 1);
+    // ospSetObject(world, "instance", instances);
+    // ospCommit(world);
+    ospRenderFrame(this->oFrameBuffer, this->oRenderer, this->oCamera, this->oWorld);
+    // ospRenderFrame(this->oFrameBuffer, this->oRenderer,
+    //             OSP_FB_COLOR | OSP_FB_ACCUM);
 }
 
 IMAGETYPE Renderer::getFiletype(std::string filename)

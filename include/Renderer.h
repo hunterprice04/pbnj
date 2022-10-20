@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <ospray/ospray.h>
+#include <ospray/ospray_util.h>
 
 #include "CImg.h"
 
@@ -43,10 +44,13 @@ namespace pbnj {
 
             OSPRenderer oRenderer;
             OSPFrameBuffer oFrameBuffer;
-            OSPModel oModel;
+            OSPObject oModel;
             OSPCamera oCamera;
             OSPGeometry oSurface;
             OSPMaterial oMaterial;
+            OSPGroup oGroup;
+            OSPInstance oInstance;
+            OSPWorld oWorld;
 
             Camera *pbnjCamera;
 
